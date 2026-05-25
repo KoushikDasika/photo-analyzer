@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Environment setup
 cp .env.example .env          # first-time setup
 uv venv                       # creates .venv
-uv pip install -r requirements.txt
+mise run setup                # installs beads (bd) + pip dependencies
 
 # Run the app
 python main.py

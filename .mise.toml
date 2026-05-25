@@ -3,3 +3,12 @@ python = "3.13"
 
 [env]
 _.file = ".env"
+
+[tasks.setup]
+description = "Install project dependencies and tools (beads, uv packages)"
+run = """
+if ! command -v bd &>/dev/null; then
+  curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+fi
+uv pip install -r requirements.txt
+"""
