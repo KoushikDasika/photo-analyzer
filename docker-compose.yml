@@ -1,0 +1,103 @@
+name: face-analyzer
+
+# -----------------------------------------------------------------------
+# Services
+#   opensearch          — stores evaluation documents (port 9200)
+#   opensearch-dashboards — visualize/query the store  (port 5601)
+#   logstash            — ingest Python app logs into OpenSearch
+#   app                 — Python app (optional: run locally instead)
+#
+# Quick start (infrastructure only — recommended while iterating):
+#   docker compose up opensearch opensearch-dashboards logstash -d
+#
+# Full stack:
+#   docker compose --env-file .env.docker up -d
+# -----------------------------------------------------------------------
+
+services:
+
+  # ── OpenSearch ──────────────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:3.6.0
+    environment:
+      - cluster.name=face-analyzer-cluster
+      - node.name=opensearch
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600"   # performance analyzer
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -v '\"status\":\"red\"'"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+    networks:
+      - face-analyzer-net
+
+  # ── OpenSearch Dashboards (replaces Kibana in the OpenSearch stack) ──
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.6.0
+    environment:
+      - OPENSEARCH_HOSTS=http://opensearch:9200
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - face-analyzer-net
+
+  # ── Logstash — log ingestion ─────────────────────────────────────────
+  logstash:
+    image: opensearchproject/logstash-oss-with-opensearch-output-plugin:latest
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./logs:/logs:ro    # Python app writes here; Logstash reads here
+    ports:
+      - "5044:5044"   # beats input (optional)
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - face-analyzer-net
+
+  # ── Python App (optional — run locally for faster iteration) ─────────
+  app:
+    build: .
+    env_file: .env.docker
+    volumes:
+      - .:/app                # live-reload code without rebuilding image
+      - ./input_images:/app/input_images:ro
+      - ./logs:/app/logs
+    # Lets the container reach ollama running on your host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - face-analyzer-net
+    profiles:
+      - full   # only starts with: docker compose --profile full up
+
+volumes:
+  opensearch-data:
+
+networks:
+  face-analyzer-net:
+    driver: bridge
