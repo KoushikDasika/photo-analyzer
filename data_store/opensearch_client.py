@@ -256,17 +256,42 @@ def populate_queue(image_paths: list, client: OpenSearch | None = None) -> int:
     return success
 
 
+def reset_stuck_images(client: OpenSearch | None = None) -> int:
+    """Reset any 'in_progress' images back to 'failed' so they get retried.
+
+    Call this at startup to recover images that were interrupted mid-run
+    (e.g. crash, keyboard interrupt, convert not found).
+
+    Returns:
+        Number of images reset.
+    """
+    client = client or get_client()
+    response = client.update_by_query(
+        index=QUEUE_INDEX,
+        body={
+            "query": {"term": {"status": "in_progress"}},
+            "script": {
+                "source": "ctx._source.status = 'failed'; ctx._source.error = 'reset: was stuck in_progress'",
+                "lang": "painless",
+            },
+        },
+    )
+    return response.get("updated", 0)
+
+
 def get_pending_images(limit: int = 100, client: OpenSearch | None = None) -> list[dict]:
-    """Return up to `limit` images with status='pending'.
+    """Return up to `limit` images that still need processing.
+
+    Includes status='pending' (never attempted) and status='failed' (retry).
+    Excludes 'completed' and 'in_progress' so running jobs aren't duplicated.
 
     Each entry is a dict with 'image_id' and 'image_path'.
-    Call this at startup to get the next batch to process.
     """
     client = client or get_client()
     response = client.search(
         index=QUEUE_INDEX,
         body={
-            "query": {"term": {"status": "pending"}},
+            "query": {"terms": {"status": ["pending", "failed"]}},
             "size":  limit,
             "_source": ["image_id", "image_path"],
         },
@@ -310,16 +335,31 @@ def mark_image_failed(
     error: str = "",
     client: OpenSearch | None = None,
 ) -> None:
-    """Update a queued image to status='failed' with an error message."""
+    """Update a queued image to status='failed', unless already completed.
+
+    Uses a scripted update so a completed status set by save_evaluation_tool
+    is never overwritten if the agent throws after the tool call succeeds.
+    """
     client = client or get_client()
     client.update(
         index=QUEUE_INDEX,
         id=image_id,
-        body={"doc": {
-            "status":       "failed",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "error":        error,
-        }},
+        body={
+            "script": {
+                "source": (
+                    "if (ctx._source.status != 'completed') {"
+                    "  ctx._source.status = 'failed';"
+                    "  ctx._source.completed_at = params.now;"
+                    "  ctx._source.error = params.error;"
+                    "}"
+                ),
+                "lang": "painless",
+                "params": {
+                    "now":   datetime.now(timezone.utc).isoformat(),
+                    "error": error,
+                },
+            }
+        },
     )
 
 

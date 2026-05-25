@@ -1,18 +1,17 @@
 """
 Grading Agent
 
-Build the agent (or group of agents) that:
-  1. Takes an image from input_images/
-  2. Evaluates it against your rubric  (configs/rubric.py)
-  3. Saves the result to OpenSearch    (data_store/opensearch_client.py)
+Evaluates a single photo against the dating-profile rubric and writes the
+result to OpenSearch. This agent has one responsibility: evaluate and save.
+Queue lifecycle (in_progress / completed / failed) is handled by workflow.py.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 HOW STRANDS WORKS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 An Agent is created with three things:
-  model        — which LLM to call (OllamaModel here)
-  tools        — Python functions the LLM can invoke during its reasoning
+  model         — which LLM to call (OllamaModel here)
+  tools         — Python functions the LLM can invoke during its reasoning
   system_prompt — instructions that shape the agent's role and behaviour
 
 When you call  agent("some prompt")  the agent:
@@ -23,27 +22,19 @@ When you call  agent("some prompt")  the agent:
   5. You get back an AgentResult — access the text with str(result)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PARALLEL AGENTS PATTERN (your Round 1 task)
+PARALLEL AGENTS PATTERN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-For 1 800 images you want parallel agents, not sequential.
-Use concurrent.futures.ThreadPoolExecutor:
+Don't call grading_agent directly in a loop — use workflow.run_evaluation_workflow()
+which handles the full queue lifecycle around the agent call.
 
+    from agents.workflow import run_evaluation_workflow
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def evaluate_one(image_path):
-        block = image_content_block(image_path)   # raw bytes, Strands format
-        result = grading_agent([
-            block,
-            {"type": "text", "text": f"Evaluate this image: {image_path.name}"},
-        ])
-        return image_path, result
-
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(evaluate_one, p): p for p in images}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(run_evaluation_workflow, img): img for img in images}
         for future in as_completed(futures):
-            path, result = future.result()
-            print(f"Done: {path.name}")
+            future.result()
 
 Tune max_workers so GPU VRAM isn't exhausted (start with 2–4).
 """
@@ -54,16 +45,14 @@ from strands_tools import image_reader
 from strands.models.ollama import OllamaModel
 from configs.rubric import rubric_text
 from data_store.opensearch_client import index_evaluation, mark_image_completed
-from utils.image_utils import image_content_block
 
-# ── Model ────────────────────────────────────────────────────────────────
-# OllamaModel talks to your local ollama over HTTP.
-# Swap the model by changing OLLAMA_MODEL in .env — no code change needed.
-model = OllamaModel(
-    host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-    # model_id=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
-    model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
-)
+def _make_model() -> OllamaModel:
+    """Create a fresh OllamaModel — called inside make_grading_agent() so each
+    agent gets its own model instance with no shared session state."""
+    return OllamaModel(
+        host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
+    )
 
 SYSTEM_PROMPT = f"""
 You are an expert matchmaker and dating-profile photo evaluator. You assess photos
@@ -75,13 +64,12 @@ Your job:
    hero_portrait | full_body | social_group | activity_sport |
    hobby_passion | travel_lifestyle | candid_natural | other
 3. Score it on every criterion below (0.0–1.0, higher = better).
-4. Call save_evaluation_tool() ONCE with all scores and a notes JSON string.
-5. Call mark_image_completed_tool() ONCE with image_id and doc.
+4. Call save_evaluation_tool() ONCE with all scores and classification fields.
 
 ── Scoring criteria ─────────────────────────────────────────────────────────
 {rubric_text()}
 ── Output format ────────────────────────────────────────────────────────────
-Call save_evaluation() with these arguments:
+Call save_evaluation_tool() with these arguments:
   image_id         — the filename you were given
   scores           — dict with ALL 15 criterion keys above, each a float 0.0–1.0
   photo_type       — one of: hero_portrait | full_body | social_group |
@@ -103,10 +91,6 @@ Important rules:
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
-# A tool is a plain Python function decorated with @tool.
-# The function's type hints and docstring become the tool's JSON schema —
-# the model reads the docstring to decide when and how to call it.
-
 
 @tool
 def save_evaluation_tool(
@@ -148,65 +132,38 @@ def save_evaluation_tool(
         brief_reason=brief_reason,
         model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
     )
-
+    mark_image_completed(image_id, eval_doc_id=doc_id)
     status = f"Saved {image_id} → doc {doc_id}"
     print(status)
     return status
 
 
-@tool
-def mark_image_completed_tool(
-    image_id: str,
-    eval_doc_id: str,
-):
-    """Save the evaluation status for one image to the data store in the pending image queue.
+# ── Agent factory ─────────────────────────────────────────────────────────
+# Strands agents are NOT thread-safe — concurrent calls on the same instance
+# raise "Agent is already processing a request."
+# Always call make_grading_agent() to get a fresh instance per worker thread.
 
-    Call this tool ONCE per image after assessing all rubric criteria and saving evaluation
+def make_grading_agent() -> Agent:
+    """Return a fully isolated grading agent instance.
 
-    Args:
-        image_id:         Filename of the image (e.g. "photo_001.jpg")
-        eval_doc_id:      doc id in opensearch index
-
-    Returns:
-        Confirmation string with the OpenSearch document ID.
+    Each call creates a new Agent AND a new OllamaModel so no session state,
+    message history, or model context is shared between concurrent workers.
+    Call once per worker thread / workflow invocation.
     """
-    mark_image_completed(
-        image_id=image_id,
-        eval_doc_id=eval_doc_id,
+    return Agent(
+        model=_make_model(),
+        tools=[save_evaluation_tool, image_reader],
+        system_prompt=SYSTEM_PROMPT,
     )
-    status = f"Marked finished in Image Queue {image_id} → doc {eval_doc_id}"
 
 
-# ── Agent ─────────────────────────────────────────────────────────────────
-grading_agent = Agent(
-    model=model,
-    tools=[save_evaluation_tool, mark_image_completed_tool, image_reader],
-    system_prompt=SYSTEM_PROMPT,
-)
-
-
-def evaluate_image(image_path):
-    block = image_content_block(image_path)  # raw bytes, Strands format
-    result = grading_agent(
-        [
-            block,
-            {"type": "text", "text": f"Evaluate this image: {image_path}"},
-        ]
-    )
-    return image_path, result
+# Module-level singleton for single-threaded use (smoke test, REPL, etc.)
+grading_agent = make_grading_agent()
 
 
 # ── Smoke test ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Run this file directly to verify the agent can reach ollama:
-    #   python agents/grading_agent.py
-    example_image_path = "input_images/111APPLE_IMG_1594.jpg"
-
-    block = image_content_block(example_image_path)  # raw bytes, Strands format
-    result = grading_agent(
-        [
-            block,
-            {"type": "text", "text": f"Evaluate this image: {example_image_path}"},
-        ]
-    )
+    # Verify the agent can reach ollama — no image, no OpenSearch needed.
+    #   python -m agents.grading_agent
+    result = grading_agent("Hello! Describe your role in one sentence.")
     print(result)

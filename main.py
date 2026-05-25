@@ -20,9 +20,10 @@ from data_store.opensearch_client import (
     populate_queue,
     queue_stats,
     get_pending_images,
+    reset_stuck_images,
 )
 from utils.image_utils import list_images
-from agents.grading_agent import evaluate_image
+from agents.workflow import run_evaluation_workflow
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
@@ -41,54 +42,52 @@ log = logging.getLogger(__name__)
 
 
 def execute_agent_grading_pool(images):
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(evaluate_image, p["image_path"]): p for p in images}
+    total = len(images)
+    done = 0
+    log.info(f"pool starting — {total} images, max_workers=3")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(run_evaluation_workflow, img): img for img in images}
         for future in as_completed(futures):
-            path, result = future.result()
-            print(queue_stats())
-            print(f"Done: {path.name}")
+            img = futures[future]
+            done += 1
+            try:
+                future.result()
+                stats = queue_stats()
+                log.info(f"[{done}/{total}] done: {img['image_id']}  queue={stats}")
+            except Exception as e:
+                log.error(f"[{done}/{total}] failed: {img['image_id']}  error={e}")
+    log.info("pool finished")
 
 
 def execute_image_grading():
-    print("Executing pool of workers")
-    print(queue_stats())
+    stats = queue_stats()
+    log.info(f"queue stats before run: {stats}")
     pending_images = get_pending_images()
+    log.info(f"fetched {len(pending_images)} images to process")
+    if not pending_images:
+        log.info("nothing to process — exiting")
+        return
     execute_agent_grading_pool(pending_images)
-    print("Finished Processing images")
-    return
+    log.info(f"queue stats after run:  {queue_stats()}")
 
 
 def setup_indices():
-    print("SETUP IMAGE QUEUE AND INDICES")
+    log.info("setting up indices and populating queue")
     images = list_images("./input_images/")
+    log.info(f"found {len(images)} images in input_images/")
     ensure_indices()
-    populate_queue(images)
-    return
+    added = populate_queue(images)
+    log.info(f"added {added} new images to queue")
+    stuck = reset_stuck_images()
+    if stuck:
+        log.warning(f"reset {stuck} stuck in_progress images → failed (will be retried)")
 
 
 def main() -> None:
-    log.info("face-analyzer starting")
-    # TODO (Round 1): replace the lines below with your grading pipeline.
-    #
-    # Suggested structure:
-    #
-    #   from utils.image_utils import list_images
-    #   from agents.grading_agent import grading_agent
-    #   from data_store.opensearch_client import ensure_indices
-    #
-    #   ensure_indices()
-    #   log.info(f"Found {len(images)} images to evaluate")
-    #
-    #   for image_path in images:
-    #       result = grading_agent(f"Evaluate this image: {image_path}")
-    #       log.info(f"Evaluated {image_path.name}: {result}")
-
-    print()
-    print("IMAGE ANALYZER START")
-    print("─" * 40)
+    log.info("─" * 40)
+    log.info("IMAGE ANALYZER START")
+    log.info("─" * 40)
     setup_indices()
-
-    print("─" * 40)
     execute_image_grading()
 
 
