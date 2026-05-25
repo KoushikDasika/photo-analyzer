@@ -44,8 +44,8 @@ log = logging.getLogger(__name__)
 def execute_agent_grading_pool(images):
     total = len(images)
     done = 0
-    log.info(f"pool starting — {total} images, max_workers=3")
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    log.info(f"pool starting — {total} images, max_workers=6")
+    with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(run_evaluation_workflow, img): img for img in images}
         for future in as_completed(futures):
             img = futures[future]
@@ -80,7 +80,9 @@ def setup_indices():
     log.info(f"added {added} new images to queue")
     stuck = reset_stuck_images()
     if stuck:
-        log.warning(f"reset {stuck} stuck in_progress images → failed (will be retried)")
+        log.warning(
+            f"reset {stuck} stuck in_progress images → failed (will be retried)"
+        )
 
 
 def main() -> None:

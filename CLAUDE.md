@@ -104,7 +104,7 @@ All config lives in `.env` (local dev) or `.env.docker` (containerised). Key var
 
 ```
 OLLAMA_BASE_URL   default http://localhost:11434
-OLLAMA_MODEL      default qwen3-vl:8b
+OLLAMA_MODEL      default qwen3.5:9b
 OPENSEARCH_URL    default http://localhost:9200
 OPENSEARCH_INDEX  default image_evaluations
 INPUT_IMAGES_DIR  default ./input_images
