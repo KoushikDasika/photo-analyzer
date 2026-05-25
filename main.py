@@ -10,9 +10,11 @@ Round 2  Open http://localhost:5601 (OpenSearch Dashboards) and explore
 Round 3  Build a selection agent that reads all evaluations and picks
          the best images based on aggregated scores.
 """
+
 import logging
 import os
 from dotenv import load_dotenv
+from data_store.opensearch_client import ensure_index
 
 load_dotenv()
 
@@ -47,6 +49,8 @@ def main() -> None:
     #   for image_path in images:
     #       result = grading_agent(f"Evaluate this image: {image_path}")
     #       log.info(f"Evaluated {image_path.name}: {result}")
+
+    ensure_index()
 
     print()
     print("face-analyzer")

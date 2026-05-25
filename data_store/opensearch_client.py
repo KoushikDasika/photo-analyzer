@@ -18,21 +18,36 @@ DOCUMENT SCHEMA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   {
-    "image_id":       "photo_001.jpg",
-    "image_path":     "./input_images/photo_001.jpg",
-    "rubric_version": "v0.1",
+    "image_id":        "photo_001.jpg",
+    "image_path":      "./input_images/photo_001.jpg",
+    "rubric_version":  "v1.0",
+    "photo_type":      "hero_portrait",       ← classified slot
+    "recommended_slot":"hero_portrait",       ← agent's top recommendation
     "scores": {
-      "criterion_1": 0.85,
-      "criterion_2": 0.70
+      "profile_slot_fit":       0.9,
+      "facial_attractiveness":  0.8,
+      "grooming":               0.85,
+      "style_outfit":           0.75,
+      "posture_confidence":     0.8,
+      "smile_expression":       0.9,
+      "approachability":        0.85,
+      "energy_vibe":            0.8,
+      "lighting":               0.9,
+      "composition":            0.75,
+      "photo_sharpness":        0.95,
+      "background_context":     0.7,
+      "authenticity":           0.9,
+      "conversation_starter":   0.7,
+      "red_flag_score":         1.0
     },
-    "total_score":    0.775,
-    "agent_id":       "grading_agent",
-    "evaluated_at":   "2026-05-25T10:00:00+00:00",
-    "raw_response":   "..."
+    "total_score":     0.82,
+    "agent_id":        "grading_agent",
+    "evaluated_at":    "2026-05-25T10:00:00+00:00",
+    "raw_response":    "..."
   }
 
-The criteria inside `scores` are dynamic — they come from whatever keys
-the agent puts in the dict, which should match your rubric.
+photo_type and recommended_slot are extracted from the agent's notes JSON
+and stored as top-level keyword fields for easy Dashboards filtering.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OBSERVING RESULTS (Round 2)
@@ -58,10 +73,36 @@ INDEX_NAME     = os.getenv("OPENSEARCH_INDEX", "image_evaluations")
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
-            "image_id":       {"type": "keyword"},
-            "image_path":     {"type": "keyword"},
-            "rubric_version": {"type": "keyword"},
-            "scores":         {"type": "object",  "dynamic": True},
+            "image_id":        {"type": "keyword"},
+            "image_path":      {"type": "keyword"},
+            "rubric_version":  {"type": "keyword"},
+            "photo_type":      {"type": "keyword"},
+            "recommended_slot":{"type": "keyword"},
+            "scores": {
+                "type": "object",
+                "properties": {
+                    # Cluster A — Classification
+                    "profile_slot_fit":      {"type": "float"},
+                    # Cluster B — How Handsome He Looks
+                    "facial_attractiveness": {"type": "float"},
+                    "grooming":              {"type": "float"},
+                    "style_outfit":          {"type": "float"},
+                    "posture_confidence":    {"type": "float"},
+                    # Cluster C — Expression & Magnetic Quality
+                    "smile_expression":      {"type": "float"},
+                    "approachability":       {"type": "float"},
+                    "energy_vibe":           {"type": "float"},
+                    # Cluster D — Technical Quality
+                    "lighting":              {"type": "float"},
+                    "composition":           {"type": "float"},
+                    "photo_sharpness":       {"type": "float"},
+                    "background_context":    {"type": "float"},
+                    # Cluster E — Dating Profile Intelligence
+                    "authenticity":          {"type": "float"},
+                    "conversation_starter":  {"type": "float"},
+                    "red_flag_score":        {"type": "float"},
+                },
+            },
             "total_score":    {"type": "float"},
             "agent_id":       {"type": "keyword"},
             "evaluated_at":   {"type": "date"},
@@ -90,9 +131,11 @@ def index_evaluation(
     image_id: str,
     image_path: str,
     scores: dict,
-    rubric_version: str = "v0.1",
+    rubric_version: str = "v1.0",
     agent_id: str = "grading_agent",
     raw_response: str = "",
+    photo_type: str = "",
+    recommended_slot: str = "",
     client: OpenSearch | None = None,
 ) -> str:
     """Write one evaluation document to OpenSearch.
@@ -103,14 +146,16 @@ def index_evaluation(
     total_score = sum(scores.values()) / len(scores) if scores else 0.0
 
     doc = {
-        "image_id":       image_id,
-        "image_path":     image_path,
-        "rubric_version": rubric_version,
-        "scores":         scores,
-        "total_score":    total_score,
-        "agent_id":       agent_id,
-        "evaluated_at":   datetime.now(timezone.utc).isoformat(),
-        "raw_response":   raw_response,
+        "image_id":        image_id,
+        "image_path":      image_path,
+        "rubric_version":  rubric_version,
+        "photo_type":      photo_type,
+        "recommended_slot":recommended_slot,
+        "scores":          scores,
+        "total_score":     total_score,
+        "agent_id":        agent_id,
+        "evaluated_at":    datetime.now(timezone.utc).isoformat(),
+        "raw_response":    raw_response,
     }
     response = client.index(index=INDEX_NAME, body=doc)
     return response["_id"]

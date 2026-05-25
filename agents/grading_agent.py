@@ -49,6 +49,7 @@ Tune max_workers so GPU VRAM isn't exhausted (start with 2–4).
 import os
 from strands import Agent, tool
 from strands.models.ollama import OllamaModel
+from configs.rubric import rubric_text, RUBRIC_VERSION
 
 # ── Model ────────────────────────────────────────────────────────────────
 # OllamaModel talks to your local ollama over HTTP.
