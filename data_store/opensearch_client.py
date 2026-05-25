@@ -64,6 +64,7 @@ import os
 from datetime import datetime, timezone
 from opensearchpy import OpenSearch
 from opensearchpy.helpers import bulk
+from configs.rubric import RUBRIC
 
 
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
@@ -76,11 +77,14 @@ QUEUE_INDEX    = os.getenv("OPENSEARCH_QUEUE_INDEX", "image_queue")
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
-            "image_id": {"type": "keyword"},
-            "image_path": {"type": "keyword"},
-            "rubric_version": {"type": "keyword"},
-            "photo_type": {"type": "keyword"},
-            "recommended_slot": {"type": "keyword"},
+            "image_id":        {"type": "keyword"},
+            "image_path":      {"type": "keyword"},
+            "rubric_version":  {"type": "keyword"},
+            "model_id":        {"type": "keyword"},
+            "photo_type":      {"type": "keyword"},
+            "recommended_slot":{"type": "keyword"},
+            "slot_confidence": {"type": "float"},
+            "brief_reason":    {"type": "text"},
             "scores": {
                 "type": "object",
                 "properties": {
@@ -106,10 +110,11 @@ INDEX_MAPPING = {
                     "red_flag_score": {"type": "float"},
                 },
             },
-            "total_score": {"type": "float"},
-            "agent_id": {"type": "keyword"},
-            "evaluated_at": {"type": "date"},
-            "raw_response": {"type": "text"},
+            "total_score":    {"type": "float"},
+            "weighted_score": {"type": "float"},
+            "agent_id":       {"type": "keyword"},
+            "evaluated_at":   {"type": "date"},
+            "raw_response":   {"type": "text"},
         }
     }
 }
@@ -155,15 +160,21 @@ def ensure_indices(client: OpenSearch | None = None) -> None:
             print(f"[opensearch] Index '{name}' already exists")
 
 
+_WEIGHT_MAP = {c.name: c.weight for c in RUBRIC}
+
+
 def index_evaluation(
     image_id: str,
     image_path: str,
     scores: dict,
-    rubric_version: str = "v1.0",
-    agent_id: str = "grading_agent",
-    raw_response: str = "",
     photo_type: str = "",
     recommended_slot: str = "",
+    slot_confidence: float = 0.0,
+    brief_reason: str = "",
+    rubric_version: str = "v1.0",
+    agent_id: str = "grading_agent",
+    model_id: str = "",
+    raw_response: str = "",
     client: OpenSearch | None = None,
 ) -> str:
     """Write one evaluation document to OpenSearch.
@@ -171,19 +182,29 @@ def index_evaluation(
     Returns the OpenSearch-assigned document ID (_id).
     """
     client = client or get_client()
+
     total_score = sum(scores.values()) / len(scores) if scores else 0.0
+    total_weight = sum(_WEIGHT_MAP.get(k, 1.0) for k in scores)
+    weighted_score = (
+        sum(scores[k] * _WEIGHT_MAP.get(k, 1.0) for k in scores) / total_weight
+        if scores else 0.0
+    )
 
     doc = {
-        "image_id": image_id,
-        "image_path": image_path,
-        "rubric_version": rubric_version,
-        "photo_type": photo_type,
-        "recommended_slot": recommended_slot,
-        "scores": scores,
-        "total_score": total_score,
-        "agent_id": agent_id,
-        "evaluated_at": datetime.now(timezone.utc).isoformat(),
-        "raw_response": raw_response,
+        "image_id":        image_id,
+        "image_path":      image_path,
+        "rubric_version":  rubric_version,
+        "model_id":        model_id,
+        "photo_type":      photo_type,
+        "recommended_slot":recommended_slot,
+        "slot_confidence": slot_confidence,
+        "brief_reason":    brief_reason,
+        "scores":          scores,
+        "total_score":     total_score,
+        "weighted_score":  weighted_score,
+        "agent_id":        agent_id,
+        "evaluated_at":    datetime.now(timezone.utc).isoformat(),
+        "raw_response":    raw_response,
     }
     response = client.index(index=INDEX_NAME, body=doc)
     return response["_id"]

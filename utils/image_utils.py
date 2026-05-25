@@ -1,29 +1,34 @@
 """
 Image Utilities
 
-Helpers for listing and loading images for the agents.
+Helpers for listing and loading images for the grading agents.
+Follows the same format as the Strands community image_reader tool:
+  https://github.com/strands-agents/tools/blob/main/src/strands_tools/image_reader.py
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-YOUR TASK (Round 1, step 2)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The Strands Converse API expects image content blocks in this shape:
+  {"image": {"format": "jpeg", "source": {"bytes": <raw_bytes>}}}
 
-Call list_images() to get all image Paths, then load_image_base64() to
-encode each one before passing it to the grading agent.
+NOT base64 strings, and NOT "image/jpeg" MIME types — just raw bytes and
+a short format string ("jpeg", "png", "gif", "webp").
 
 Example usage:
-    from utils.image_utils import list_images, load_image_base64, image_media_type
+    from utils.image_utils import list_images, image_content_block
 
     for image_path in list_images():
-        b64  = load_image_base64(image_path)
-        mime = image_media_type(image_path)
-        # pass b64 + mime to your agent prompt
+        block = image_content_block(image_path)
+        result = grading_agent([
+            block,
+            {"type": "text", "text": f"Evaluate this image: {image_path.name}"},
+        ])
 """
-import base64
 import os
 from pathlib import Path
 
+from PIL import Image
 
-SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+
+# BMP excluded — not supported by the Strands Converse API
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
 def list_images(directory: str | None = None) -> list[Path]:
@@ -39,31 +44,51 @@ def list_images(directory: str | None = None) -> list[Path]:
     )
 
 
-def load_image_base64(image_path: str | Path) -> str:
-    """Read an image file and return its base64-encoded string."""
+def load_image_bytes(image_path: str | Path) -> bytes:
+    """Read an image file and return its raw bytes."""
     with open(image_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+        return f.read()
 
 
-def image_media_type(image_path: str | Path) -> str:
-    """Return the MIME type string for the given image path."""
-    suffix = Path(image_path).suffix.lower()
+def image_format(image_path: str | Path) -> str:
+    """Return the Strands-compatible format string for an image.
+
+    Uses PIL to detect the actual format (handles mis-named files).
+    Returns one of: "jpeg", "png", "gif", "webp".
+    Defaults to "jpeg" if format is unrecognised.
+    """
+    with Image.open(image_path) as img:
+        fmt = (img.format or "").lower()
+    # PIL returns "jpeg" for both .jpg and .jpeg — already correct
+    if fmt not in ("jpeg", "png", "gif", "webp"):
+        fmt = "jpeg"
+    return fmt
+
+
+def image_content_block(image_path: str | Path) -> dict:
+    """Return a Strands Converse API image content block for this image.
+
+    The returned dict can be placed directly in an agent prompt list:
+
+        result = agent([
+            image_content_block(path),
+            {"type": "text", "text": "Evaluate this image: photo.jpg"},
+        ])
+    """
     return {
-        ".jpg":  "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png":  "image/png",
-        ".webp": "image/webp",
-        ".gif":  "image/gif",
-        ".bmp":  "image/bmp",
-    }.get(suffix, "image/jpeg")
+        "image": {
+            "format": image_format(image_path),
+            "source": {"bytes": load_image_bytes(image_path)},
+        }
+    }
 
 
 # ── Quick preview ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # python utils/image_utils.py
+    # python -m utils.image_utils
     images = list_images()
     print(f"Found {len(images)} images")
     for p in images[:5]:
-        print(f"  {p.name}  ({image_media_type(p)})")
+        print(f"  {p.name}  (format: {image_format(p)},  size: {p.stat().st_size} bytes)")
     if len(images) > 5:
         print(f"  ... and {len(images) - 5} more")
