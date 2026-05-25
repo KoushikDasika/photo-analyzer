@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "face_analyzer_agent_swarm",
+  "project_id": "9e77cd1c-417f-4612-854e-64526f914cf2"
+}

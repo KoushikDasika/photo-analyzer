@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Environment setup
 cp .env.example .env          # first-time setup
-source .venv/bin/activate
-pip install -r requirements.txt
+uv venv                       # creates .venv
+mise run setup                # installs beads (bd) + pip dependencies
 
 # Run the app
 python main.py
@@ -56,7 +56,7 @@ input_images/ → grading agents → OpenSearch → OpenSearch Dashboards
 from strands import Agent, tool
 from strands.models.ollama import OllamaModel
 
-model = OllamaModel(host="http://localhost:11434", model_id="qwen3-vl:7b")
+model = OllamaModel(host="http://localhost:11434", model_id="qwen3-vl:8b")
 
 @tool
 def my_tool(param: str) -> str:
@@ -103,7 +103,7 @@ All config lives in `.env` (local dev) or `.env.docker` (containerised). Key var
 
 ```
 OLLAMA_BASE_URL   default http://localhost:11434
-OLLAMA_MODEL      default qwen3-vl:7b
+OLLAMA_MODEL      default qwen3-vl:8b
 OPENSEARCH_URL    default http://localhost:9200
 OPENSEARCH_INDEX  default image_evaluations
 INPUT_IMAGES_DIR  default ./input_images

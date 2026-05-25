@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(input_images/**)",
+      "Read(reference_images/**)",
+      "Bash(find input_images*)",
+      "Bash(find reference_images*)",
+      "Bash(ls input_images*)",
+      "Bash(ls reference_images*)"
+    ]
+  }
+}
