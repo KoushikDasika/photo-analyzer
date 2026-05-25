@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Environment setup
 cp .env.example .env          # first-time setup
-source .venv/bin/activate
-pip install -r requirements.txt
+uv venv                       # creates .venv
+uv pip install -r requirements.txt
 
 # Run the app
 python main.py
