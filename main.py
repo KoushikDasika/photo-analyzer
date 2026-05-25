@@ -13,8 +13,10 @@ Round 3  Build a selection agent that reads all evaluations and picks
 
 import logging
 import os
+from pathlib import Path
 from dotenv import load_dotenv
-from data_store.opensearch_client import ensure_index
+from data_store.opensearch_client import ensure_indices, populate_queue
+from utils.image_utils import list_images
 
 load_dotenv()
 
@@ -40,21 +42,22 @@ def main() -> None:
     #
     #   from utils.image_utils import list_images
     #   from agents.grading_agent import grading_agent
-    #   from data_store.opensearch_client import ensure_index
+    #   from data_store.opensearch_client import ensure_indices
     #
-    #   ensure_index()
-    #   images = list_images()
+    #   ensure_indices()
     #   log.info(f"Found {len(images)} images to evaluate")
     #
     #   for image_path in images:
     #       result = grading_agent(f"Evaluate this image: {image_path}")
     #       log.info(f"Evaluated {image_path.name}: {result}")
 
-    ensure_index()
-
     print()
     print("face-analyzer")
     print("─" * 40)
+    images = list_images("./input_images/")
+    ensure_indices()
+    populate_queue(images)
+
     print("Nothing runs yet — this is your scaffold.")
     print()
     print("Next steps:")
