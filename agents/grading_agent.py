@@ -55,7 +55,7 @@ from strands.models.ollama import OllamaModel
 # Swap the model by changing OLLAMA_MODEL in .env — no code change needed.
 model = OllamaModel(
     host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-    model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:7b"),
+    model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
 )
 
 
