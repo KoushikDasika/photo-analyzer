@@ -44,7 +44,7 @@ from strands import Agent, tool
 from strands_tools import image_reader
 from strands.models.ollama import OllamaModel
 from configs.rubric import rubric_text
-from data_store.opensearch_client import index_evaluation
+from data_store.opensearch_client import index_evaluation, mark_image_completed
 
 def _make_model() -> OllamaModel:
     """Create a fresh OllamaModel — called inside make_grading_agent() so each
@@ -132,6 +132,7 @@ def save_evaluation_tool(
         brief_reason=brief_reason,
         model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
     )
+    mark_image_completed(image_id, eval_doc_id=doc_id)
     status = f"Saved {image_id} → doc {doc_id}"
     print(status)
     return status

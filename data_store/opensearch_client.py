@@ -335,16 +335,31 @@ def mark_image_failed(
     error: str = "",
     client: OpenSearch | None = None,
 ) -> None:
-    """Update a queued image to status='failed' with an error message."""
+    """Update a queued image to status='failed', unless already completed.
+
+    Uses a scripted update so a completed status set by save_evaluation_tool
+    is never overwritten if the agent throws after the tool call succeeds.
+    """
     client = client or get_client()
     client.update(
         index=QUEUE_INDEX,
         id=image_id,
-        body={"doc": {
-            "status":       "failed",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "error":        error,
-        }},
+        body={
+            "script": {
+                "source": (
+                    "if (ctx._source.status != 'completed') {"
+                    "  ctx._source.status = 'failed';"
+                    "  ctx._source.completed_at = params.now;"
+                    "  ctx._source.error = params.error;"
+                    "}"
+                ),
+                "lang": "painless",
+                "params": {
+                    "now":   datetime.now(timezone.utc).isoformat(),
+                    "error": error,
+                },
+            }
+        },
     )
 
 
