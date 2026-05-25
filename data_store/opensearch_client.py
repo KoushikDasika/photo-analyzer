@@ -256,6 +256,29 @@ def populate_queue(image_paths: list, client: OpenSearch | None = None) -> int:
     return success
 
 
+def reset_stuck_images(client: OpenSearch | None = None) -> int:
+    """Reset any 'in_progress' images back to 'failed' so they get retried.
+
+    Call this at startup to recover images that were interrupted mid-run
+    (e.g. crash, keyboard interrupt, convert not found).
+
+    Returns:
+        Number of images reset.
+    """
+    client = client or get_client()
+    response = client.update_by_query(
+        index=QUEUE_INDEX,
+        body={
+            "query": {"term": {"status": "in_progress"}},
+            "script": {
+                "source": "ctx._source.status = 'failed'; ctx._source.error = 'reset: was stuck in_progress'",
+                "lang": "painless",
+            },
+        },
+    )
+    return response.get("updated", 0)
+
+
 def get_pending_images(limit: int = 100, client: OpenSearch | None = None) -> list[dict]:
     """Return up to `limit` images that still need processing.
 

@@ -3,4 +3,5 @@ strands-agents-tools>=0.6.0
 ollama>=0.4.0
 opensearch-py>=2.8.0
 Pillow>=11.0.0
+Wand>=0.6.0
 python-dotenv>=1.0.0

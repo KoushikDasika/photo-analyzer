@@ -15,6 +15,8 @@ Usage:
     run_evaluation_workflow({"image_id": "photo_001.jpg", "image_path": "./input_images/photo_001.jpg"})
 """
 
+import logging
+
 from agents.grading_agent import make_grading_agent
 from data_store.opensearch_client import (
     mark_image_in_progress,
@@ -22,6 +24,8 @@ from data_store.opensearch_client import (
     mark_image_failed,
 )
 from utils.image_utils import image_content_block
+
+log = logging.getLogger(__name__)
 
 
 def run_evaluation_workflow(image: dict) -> str:
@@ -39,15 +43,19 @@ def run_evaluation_workflow(image: dict) -> str:
     image_id   = image["image_id"]
     image_path = image["image_path"]
 
+    log.info(f"[{image_id}] starting evaluation")
     mark_image_in_progress(image_id)
     try:
+        log.info(f"[{image_id}] loading image and calling grading agent")
         agent = make_grading_agent()
         result = agent([
             image_content_block(image_path),
             {"type": "text", "text": f"Evaluate this image: {image_id}"},
         ])
         mark_image_completed(image_id)
+        log.info(f"[{image_id}] completed ✓")
         return str(result)
     except Exception as e:
         mark_image_failed(image_id, str(e))
+        log.error(f"[{image_id}] failed: {e}")
         raise
