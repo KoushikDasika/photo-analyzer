@@ -21,6 +21,7 @@ Example usage:
             {"type": "text", "text": f"Evaluate this image: {image_path.name}"},
         ])
 """
+import io
 import os
 from pathlib import Path
 
@@ -29,6 +30,11 @@ from PIL import Image
 
 # BMP excluded — not supported by the Strands Converse API
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+# iPhone photos are 12 MP (4032×3024, 3–6 MB). Ollama rejects payloads that
+# large with an HTML error. 1024 px on the long edge is plenty for a VLM to
+# assess composition, lighting, expression, etc.
+MAX_IMAGE_PX = int(os.getenv("MAX_IMAGE_PX", "1024"))
 
 
 def list_images(directory: str | None = None) -> list[Path]:
@@ -44,10 +50,18 @@ def list_images(directory: str | None = None) -> list[Path]:
     )
 
 
-def load_image_bytes(image_path: str | Path) -> bytes:
-    """Read an image file and return its raw bytes."""
-    with open(image_path, "rb") as f:
-        return f.read()
+def load_image_bytes(image_path: str | Path, max_px: int = MAX_IMAGE_PX) -> bytes:
+    """Read an image, resize so the long edge ≤ max_px, and return JPEG bytes.
+
+    Phone photos (3–6 MB) exceed Ollama's request size. Resizing to 1024 px
+    keeps the image readable for a vision model at a fraction of the size.
+    """
+    with Image.open(image_path) as img:
+        img = img.convert("RGB")  # normalise — handles RGBA, palette, etc.
+        img.thumbnail((max_px, max_px), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
 
 
 def image_format(image_path: str | Path) -> str:

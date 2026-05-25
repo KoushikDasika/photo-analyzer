@@ -257,16 +257,18 @@ def populate_queue(image_paths: list, client: OpenSearch | None = None) -> int:
 
 
 def get_pending_images(limit: int = 100, client: OpenSearch | None = None) -> list[dict]:
-    """Return up to `limit` images with status='pending'.
+    """Return up to `limit` images that still need processing.
+
+    Includes status='pending' (never attempted) and status='failed' (retry).
+    Excludes 'completed' and 'in_progress' so running jobs aren't duplicated.
 
     Each entry is a dict with 'image_id' and 'image_path'.
-    Call this at startup to get the next batch to process.
     """
     client = client or get_client()
     response = client.search(
         index=QUEUE_INDEX,
         body={
-            "query": {"term": {"status": "pending"}},
+            "query": {"terms": {"status": ["pending", "failed"]}},
             "size":  limit,
             "_source": ["image_id", "image_path"],
         },

@@ -22,7 +22,7 @@ from data_store.opensearch_client import (
     get_pending_images,
 )
 from utils.image_utils import list_images
-from agents.grading_agent import evaluate_image
+from agents.workflow import run_evaluation_workflow
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
@@ -41,12 +41,15 @@ log = logging.getLogger(__name__)
 
 
 def execute_agent_grading_pool(images):
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(evaluate_image, p["image_path"]): p for p in images}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(run_evaluation_workflow, img): img for img in images}
         for future in as_completed(futures):
-            path, result = future.result()
-            print(queue_stats())
-            print(f"Done: {path.name}")
+            img = futures[future]
+            try:
+                future.result()
+                log.info(f"Done: {img['image_id']}  stats={queue_stats()}")
+            except Exception as e:
+                log.error(f"Failed: {img['image_id']}  error={e}")
 
 
 def execute_image_grading():
@@ -67,21 +70,7 @@ def setup_indices():
 
 
 def main() -> None:
-    log.info("face-analyzer starting")
-    # TODO (Round 1): replace the lines below with your grading pipeline.
-    #
-    # Suggested structure:
-    #
-    #   from utils.image_utils import list_images
-    #   from agents.grading_agent import grading_agent
-    #   from data_store.opensearch_client import ensure_indices
-    #
-    #   ensure_indices()
-    #   log.info(f"Found {len(images)} images to evaluate")
-    #
-    #   for image_path in images:
-    #       result = grading_agent(f"Evaluate this image: {image_path}")
-    #       log.info(f"Evaluated {image_path.name}: {result}")
+    log.info("Image Analyzer")
 
     print()
     print("IMAGE ANALYZER START")
