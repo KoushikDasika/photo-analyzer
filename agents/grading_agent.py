@@ -185,6 +185,17 @@ grading_agent = Agent(
 )
 
 
+def evaluate_image(image_path):
+    block = image_content_block(image_path)  # raw bytes, Strands format
+    result = grading_agent(
+        [
+            block,
+            {"type": "text", "text": f"Evaluate this image: {image_path}"},
+        ]
+    )
+    return image_path, result
+
+
 # ── Smoke test ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # Run this file directly to verify the agent can reach ollama:
