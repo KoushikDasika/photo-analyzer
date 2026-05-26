@@ -40,19 +40,24 @@ Tune max_workers so GPU VRAM isn't exhausted (start with 2–4).
 """
 
 import os
-from strands import Agent, tool
-from strands_tools import image_reader
+from strands import Agent
 from strands.models.ollama import OllamaModel
 from configs.rubric import rubric_text
-from data_store.opensearch_client import index_evaluation, mark_image_completed
+
 
 def _make_model() -> OllamaModel:
     """Create a fresh OllamaModel — called inside make_grading_agent() so each
     agent gets its own model instance with no shared session state."""
     return OllamaModel(
         host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
+        model_id=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
+        temperature=0.3,
+        options={
+            "think": False,
+            "num_ctx": 8192,
+        },
     )
+
 
 SYSTEM_PROMPT = f"""
 You are an expert matchmaker and dating-profile photo evaluator. You assess photos
@@ -64,84 +69,48 @@ Your job:
    hero_portrait | full_body | social_group | activity_sport |
    hobby_passion | travel_lifestyle | candid_natural | other
 3. Score it on every criterion below (0.0–1.0, higher = better).
-4. Call save_evaluation_tool() ONCE with all scores and classification fields.
+4. Respond with ONLY valid JSON — no markdown, no extra text.
 
 ── Scoring criteria ─────────────────────────────────────────────────────────
 {rubric_text()}
 ── Output format ────────────────────────────────────────────────────────────
-Call save_evaluation_tool() with these arguments:
-  image_id         — the filename you were given
-  scores           — dict with ALL 15 criterion keys above, each a float 0.0–1.0
-  photo_type       — one of: hero_portrait | full_body | social_group |
-                     activity_sport | hobby_passion | travel_lifestyle |
-                     candid_natural | other
-  recommended_slot — same as photo_type, or a different slot if this photo
-                     would serve even better there
-  slot_confidence  — float 0.0–1.0, how sure you are about the classification
-  brief_reason     — one sentence: the single most important thing about this
-                     photo for a dating profile
+Respond with exactly this JSON structure (no markdown, no extra text):
+{{
+  "scores": {{
+    "profile_slot_fit": 0.0,
+    "facial_attractiveness": 0.0,
+    "grooming": 0.0,
+    "style_outfit": 0.0,
+    "posture_confidence": 0.0,
+    "smile_expression": 0.0,
+    "approachability": 0.0,
+    "energy_vibe": 0.0,
+    "lighting": 0.0,
+    "composition": 0.0,
+    "photo_sharpness": 0.0,
+    "background_context": 0.0,
+    "authenticity": 0.0,
+    "conversation_starter": 0.0,
+    "red_flag_score": 0.0
+  }},
+  "photo_type": "hero_portrait",
+  "recommended_slot": "hero_portrait",
+  "slot_confidence": 0.0,
+  "brief_reason": "one sentence"
+}}
 
 Important rules:
-- red_flag_score starts at 1.0 and is reduced by deductions listed in the criterion.
-  Floor is 0.0. Score 1.0 if no red flags are present.
-- Do NOT add extra keys to scores — use exactly the 15 names listed.
+- red_flag_score starts at 1.0 and is reduced by deductions. Floor is 0.0. Score 1.0 if no red flags.
+- Use exactly the 15 keys listed above in scores — no additions or omissions.
 - Be honest and specific. The goal is to find the best photos, not to flatter.
-- Evaluate each criterion independently based on what you can observe.
 """
-
-
-# ── Tools ─────────────────────────────────────────────────────────────────
-
-@tool
-def save_evaluation_tool(
-    image_id: str,
-    scores: dict,
-    photo_type: str,
-    recommended_slot: str,
-    slot_confidence: float,
-    brief_reason: str,
-) -> str:
-    """Save the evaluation scores for one image to the data store.
-
-    Call this tool ONCE per image after assessing all rubric criteria.
-
-    Args:
-        image_id:         Filename of the image (e.g. "photo_001.jpg")
-        scores:           Mapping of criterion name → float in [0.0, 1.0].
-                          Must contain exactly the 15 keys listed in the rubric.
-        photo_type:       Which dating-profile slot this photo fills.
-                          One of: hero_portrait | full_body | social_group |
-                          activity_sport | hobby_passion | travel_lifestyle |
-                          candid_natural | other
-        recommended_slot: Best slot for this photo (usually same as photo_type,
-                          but can differ if a better fit exists).
-        slot_confidence:  How confident you are in the classification (0.0–1.0).
-        brief_reason:     One sentence — the single most important insight about
-                          this photo for a dating profile.
-
-    Returns:
-        Confirmation string with the OpenSearch document ID.
-    """
-    doc_id = index_evaluation(
-        image_id=image_id,
-        image_path=f"./input_images/{image_id}",
-        scores=scores,
-        photo_type=photo_type,
-        recommended_slot=recommended_slot,
-        slot_confidence=slot_confidence,
-        brief_reason=brief_reason,
-        model_id=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b"),
-    )
-    mark_image_completed(image_id, eval_doc_id=doc_id)
-    status = f"Saved {image_id} → doc {doc_id}"
-    print(status)
-    return status
 
 
 # ── Agent factory ─────────────────────────────────────────────────────────
 # Strands agents are NOT thread-safe — concurrent calls on the same instance
 # raise "Agent is already processing a request."
 # Always call make_grading_agent() to get a fresh instance per worker thread.
+
 
 def make_grading_agent() -> Agent:
     """Return a fully isolated grading agent instance.
@@ -152,18 +121,15 @@ def make_grading_agent() -> Agent:
     """
     return Agent(
         model=_make_model(),
-        tools=[save_evaluation_tool, image_reader],
+        tools=[],
         system_prompt=SYSTEM_PROMPT,
     )
-
-
-# Module-level singleton for single-threaded use (smoke test, REPL, etc.)
-grading_agent = make_grading_agent()
 
 
 # ── Smoke test ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # Verify the agent can reach ollama — no image, no OpenSearch needed.
-    #   python -m agents.grading_agent
-    result = grading_agent("Hello! Describe your role in one sentence.")
+    #   python agents/grading_agent.py
+    agent = make_grading_agent()
+    result = agent("Hello! Describe your role in one sentence.")
     print(result)

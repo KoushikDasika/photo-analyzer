@@ -56,7 +56,7 @@ The project is built in three rounds — you implement each one yourself.
 - Python 3.13 (managed by `mise` — run `mise install`)
 - [ollama](https://ollama.com) running locally with a vision model pulled:
   ```bash
-  ollama pull qwen3-vl:8b
+  ollama pull qwen3.5:9b
   ```
 - Docker + Docker Compose (for OpenSearch/Dashboards/Logstash)
 
@@ -94,7 +94,7 @@ python main.py
 from strands import Agent, tool
 from strands.models.ollama import OllamaModel
 
-model = OllamaModel(host="http://localhost:11434", model_id="qwen3-vl:8b")
+model = OllamaModel(host="http://localhost:11434", model_id="qwen3.5:9b")
 
 @tool
 def my_tool(param: str) -> str:
@@ -131,22 +131,22 @@ Start with `max_workers=4` and tune down if ollama runs out of VRAM.
 
 All config is in `.env` (local dev) — copy from `.env.example`.
 
-| Variable | Default | Notes |
-|---|---|---|
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | ollama runs on host, not in Docker |
-| `OLLAMA_MODEL` | `qwen3-vl:8b` | swap without code changes |
-| `OPENSEARCH_URL` | `http://localhost:9200` | use `opensearch:9200` inside Docker |
-| `OPENSEARCH_INDEX` | `image_evaluations` | |
-| `INPUT_IMAGES_DIR` | `./input_images` | |
+| Variable           | Default                  | Notes                               |
+| ------------------ | ------------------------ | ----------------------------------- |
+| `OLLAMA_BASE_URL`  | `http://localhost:11434` | ollama runs on host, not in Docker  |
+| `OLLAMA_MODEL`     | `qwen3.5:9b`             | swap without code changes           |
+| `OPENSEARCH_URL`   | `http://localhost:9200`  | use `opensearch:9200` inside Docker |
+| `OPENSEARCH_INDEX` | `image_evaluations`      |                                     |
+| `INPUT_IMAGES_DIR` | `./input_images`         |                                     |
 
 ---
 
 ## Stack
 
-| Component | Role |
-|---|---|
-| [Strands Agents](https://github.com/strands-agents/sdk-python) | Agent framework |
-| [ollama](https://ollama.com) (`qwen3-vl:8b`) | Local vision LLM |
-| OpenSearch 3.6 | Evaluation document store |
-| OpenSearch Dashboards 3.6 | Visualization / review |
-| Logstash | App log ingestion → OpenSearch |
+| Component                                                      | Role                           |
+| -------------------------------------------------------------- | ------------------------------ |
+| [Strands Agents](https://github.com/strands-agents/sdk-python) | Agent framework                |
+| [ollama](https://ollama.com) (`qwen3.5:9b`)                    | Local vision LLM               |
+| OpenSearch 3.6                                                 | Evaluation document store      |
+| OpenSearch Dashboards 3.6                                      | Visualization / review         |
+| Logstash                                                       | App log ingestion → OpenSearch |

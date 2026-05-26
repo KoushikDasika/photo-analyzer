@@ -36,19 +36,20 @@ input_images/ → grading agents → OpenSearch → OpenSearch Dashboards
 ```
 
 **Iteration roadmap** (the user implements each round):
+
 - **Round 1** — Define rubric → build grading agents → write evaluations to OpenSearch
 - **Round 2** — Observe/query the evaluation store via Dashboards (`localhost:5601`)
 - **Round 3** — Build a selection agent that reads all evaluations and ranks images
 
 ### Key modules
 
-| File | Purpose |
-|---|---|
-| `configs/rubric.py` | `Criterion` dataclass + `RUBRIC` list. `rubric_text()` generates the system-prompt block. |
-| `agents/grading_agent.py` | Strands `Agent` definition. `OllamaModel` + `@tool save_evaluation`. |
-| `data_store/opensearch_client.py` | `ensure_index()` and `index_evaluation()` — the write path to OpenSearch. |
-| `utils/image_utils.py` | `list_images()`, `load_image_base64()`, `image_media_type()`. |
-| `main.py` | Entry point — wire the above together here. |
+| File                              | Purpose                                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------------------------- |
+| `configs/rubric.py`               | `Criterion` dataclass + `RUBRIC` list. `rubric_text()` generates the system-prompt block. |
+| `agents/grading_agent.py`         | Strands `Agent` definition. `OllamaModel` + `@tool save_evaluation`.                      |
+| `data_store/opensearch_client.py` | `ensure_index()` and `index_evaluation()` — the write path to OpenSearch.                 |
+| `utils/image_utils.py`            | `list_images()`, `load_image_base64()`, `image_media_type()`.                             |
+| `main.py`                         | Entry point — wire the above together here.                                               |
 
 ### Strands Agents pattern
 
@@ -56,7 +57,7 @@ input_images/ → grading agents → OpenSearch → OpenSearch Dashboards
 from strands import Agent, tool
 from strands.models.ollama import OllamaModel
 
-model = OllamaModel(host="http://localhost:11434", model_id="qwen3-vl:8b")
+model = OllamaModel(host="http://localhost:11434", model_id="qwen3.5:9b")
 
 @tool
 def my_tool(param: str) -> str:
@@ -103,7 +104,7 @@ All config lives in `.env` (local dev) or `.env.docker` (containerised). Key var
 
 ```
 OLLAMA_BASE_URL   default http://localhost:11434
-OLLAMA_MODEL      default qwen3-vl:8b
+OLLAMA_MODEL      default qwen3.5:9b
 OPENSEARCH_URL    default http://localhost:9200
 OPENSEARCH_INDEX  default image_evaluations
 INPUT_IMAGES_DIR  default ./input_images

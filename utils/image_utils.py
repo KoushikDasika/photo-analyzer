@@ -34,7 +34,7 @@ SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # iPhone photos are 12 MP (4032×3024, 3–6 MB). Ollama rejects payloads that
 # large with an HTML error. 1024 px on the long edge is plenty for a VLM to
 # assess composition, lighting, expression, etc.
-MAX_IMAGE_PX = int(os.getenv("MAX_IMAGE_PX", "1024"))
+MAX_IMAGE_PX = int(os.getenv("MAX_IMAGE_PX", "256"))
 
 
 def list_images(directory: str | None = None) -> list[Path]:
@@ -50,14 +50,24 @@ def list_images(directory: str | None = None) -> list[Path]:
     )
 
 
+RESIZE_CACHE_DIR = Path(os.getenv("RESIZE_CACHE_DIR", ".resize_cache"))
+
+
 def load_image_bytes(image_path: str | Path, max_px: int = MAX_IMAGE_PX) -> bytes:
     """Resize image to fit within max_px using Wand (ImageMagick) and return JPEG bytes.
 
     - auto_orient() corrects EXIF rotation (iPhone photos are often rotated).
     - transform(resize=...) with '>' only shrinks — never enlarges.
     - Phone photos (4032×3024, 3–6 MB) become ~100–300 KB.
+    - Results are cached to RESIZE_CACHE_DIR so retries skip the Wand resize.
     """
     path = Path(image_path)
+    cache_path = RESIZE_CACHE_DIR / f"{path.stem}_{max_px}.jpg"
+
+    if cache_path.exists():
+        log.debug(f"[{path.name}] cache hit  {cache_path.name}")
+        return cache_path.read_bytes()
+
     original_kb = path.stat().st_size // 1024
     log.debug(f"[{path.name}] resizing  original={original_kb} KB  max={max_px}px")
 
@@ -69,6 +79,10 @@ def load_image_bytes(image_path: str | Path, max_px: int = MAX_IMAGE_PX) -> byte
 
     resized_kb = len(data) // 1024
     log.info(f"[{path.name}] resized  {original_kb} KB → {resized_kb} KB")
+
+    RESIZE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path.write_bytes(data)
+
     return data
 
 
