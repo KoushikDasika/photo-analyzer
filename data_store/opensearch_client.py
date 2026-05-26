@@ -134,6 +134,7 @@ QUEUE_MAPPING = {
             # pending | in_progress | completed | failed
             "status":       {"type": "keyword"},
             "discovered_at":{"type": "date"},
+            "resized_at":   {"type": "date"},
             "started_at":   {"type": "date"},
             "completed_at": {"type": "date"},
             # _id of the matching document in image_evaluations (set on completion)
@@ -150,14 +151,18 @@ def get_client() -> OpenSearch:
 
 
 def ensure_indices(client: OpenSearch | None = None) -> None:
-    """Create both indices + mappings if they don't already exist."""
+    """Create both indices if they don't exist; always push mapping updates."""
     client = client or get_client()
     for name, mapping in [(INDEX_NAME, INDEX_MAPPING), (QUEUE_INDEX, QUEUE_MAPPING)]:
         if not client.indices.exists(index=name):
             client.indices.create(index=name, body=mapping)
             print(f"[opensearch] Created index '{name}'")
         else:
-            print(f"[opensearch] Index '{name}' already exists")
+            try:
+                client.indices.put_mapping(index=name, body=mapping["mappings"])
+                print(f"[opensearch] Index '{name}' mapping updated")
+            except Exception:
+                print(f"[opensearch] Index '{name}' already exists (mapping unchanged)")
 
 
 _WEIGHT_MAP = {c.name: c.weight for c in RUBRIC}
@@ -242,6 +247,7 @@ def populate_queue(image_paths: list, client: OpenSearch | None = None) -> int:
             "image_path":  image_path,
             "status":      "pending",
             "discovered_at": now,
+            "resized_at":  None,
             "started_at":  None,
             "completed_at":None,
             "eval_doc_id": None,
@@ -361,6 +367,38 @@ def mark_image_failed(
             }
         },
     )
+
+
+def get_unresized_images(
+    limit: int = 5000, target_px: int = 0, client: OpenSearch | None = None
+) -> list[dict]:
+    """Return queue docs not yet resized at target_px.
+
+    Matches images where resized_px is absent, null, or differs from target_px —
+    so changing MAX_IMAGE_PX automatically triggers a fresh resize pass.
+    """
+    client = client or get_client()
+    query = (
+        {"bool": {"must_not": {"term": {"resized_px": target_px}}}}
+        if target_px
+        else {"bool": {"must_not": {"exists": {"field": "resized_at"}}}}
+    )
+    response = client.search(
+        index=QUEUE_INDEX,
+        body={"query": query, "size": limit, "_source": ["image_id", "image_path"]},
+    )
+    return [hit["_source"] for hit in response["hits"]["hits"]]
+
+
+def mark_image_resized(
+    image_id: str, resized_px: int = 0, client: OpenSearch | None = None
+) -> None:
+    """Record that the resized JPEG cache file has been written for this image."""
+    client = client or get_client()
+    doc = {"resized_at": datetime.now(timezone.utc).isoformat()}
+    if resized_px:
+        doc["resized_px"] = resized_px
+    client.update(index=QUEUE_INDEX, id=image_id, body={"doc": doc})
 
 
 def queue_stats(client: OpenSearch | None = None) -> dict:

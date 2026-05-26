@@ -52,7 +52,10 @@ def _make_model() -> OllamaModel:
         host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
         model_id=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
         temperature=0.3,
-        options={"think": False},
+        options={
+            "think": False,
+            "num_ctx": 8192,
+        },
     )
 
 

@@ -21,6 +21,7 @@ import os
 
 from agents.grading_agent import make_grading_agent
 from data_store.opensearch_client import (
+    get_client,
     index_evaluation,
     mark_image_in_progress,
     mark_image_completed,
@@ -66,7 +67,8 @@ def run_evaluation_workflow(image: dict) -> str:
     image_path = image["image_path"]
 
     log.info(f"[{image_id}] starting evaluation")
-    mark_image_in_progress(image_id)
+    client = get_client()
+    mark_image_in_progress(image_id, client=client)
     try:
         log.info(f"[{image_id}] loading image and calling grading agent")
         agent = make_grading_agent()
@@ -89,11 +91,12 @@ def run_evaluation_workflow(image: dict) -> str:
             brief_reason=parsed.get("brief_reason", ""),
             model_id=os.getenv("OLLAMA_MODEL", "qwen3.5:9b"),
             raw_response=raw,
+            client=client,
         )
-        mark_image_completed(image_id, eval_doc_id=doc_id)
+        mark_image_completed(image_id, eval_doc_id=doc_id, client=client)
         log.info(f"[{image_id}] completed ✓  doc={doc_id}")
         return doc_id
     except Exception as e:
-        mark_image_failed(image_id, str(e))
+        mark_image_failed(image_id, str(e), client=client)
         log.error(f"[{image_id}] failed: {e}")
         raise
